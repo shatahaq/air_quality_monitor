@@ -112,47 +112,119 @@ while not st.session_state.mqtt_queue.empty():
                 mqtt_client.publish(TOPIC_PRED, json.dumps(resp))
 
 # ================= TAMPILAN UI =================
-st.title("🍃 AI Air Quality Monitoring")
-st.markdown("### Random Forest Inference on Streamlit Cloud")
-st.markdown("---")
-
-# Kolom Metrik & Status
-col_metrics, col_status = st.columns([2, 1])
-
-with col_metrics:
-    c1, c2, c3 = st.columns(3)
-    c1.metric("🌡️ Temperature", f"{st.session_state.sensor_data['temp']} °C")
-    c2.metric("💧 Humidity", f"{st.session_state.sensor_data['hum']} %")
-    c3.metric("💨 Gas PPM", f"{st.session_state.sensor_data['gas']} ppm")
-    st.caption(f"Last Update: {st.session_state.sensor_data['timestamp']}")
-
-with col_status:
-    lbl = st.session_state.pred_result['label']
-    conf = st.session_state.pred_result['confidence']
-    
-    colors = {
-        "Baik": "#28a745",          # Hijau
-        "Sedang": "#ffc107",        # Kuning
-        "Tidak_Sehat": "#fd7e14",   # Oranye
-        "Berbahaya": "#dc3545"      # Merah
+# Custom CSS untuk styling yang lebih modern
+st.markdown("""
+    <style>
+    .main {
+        background-color: #f8f9fa;
     }
-    bg_color = colors.get(lbl, "#6c757d")
-    
-    st.markdown(f"""
-        <div style="background-color: {bg_color}; padding: 15px; border-radius: 10px; color: white; text-align: center;">
-            <h2 style="margin:0;">{lbl}</h2>
-            <p style="margin:0;">Confidence: {conf}%</p>
-        </div>
+    .stMetric {
+        background-color: #ffffff;
+        padding: 15px;
+        border-radius: 10px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        text-align: center;
+    }
+    .stMetric label {
+        color: #6c757d;
+        font-weight: 500;
+    }
+    .stMetric .css-1wivap2 {
+        font-size: 24px;
+        color: #212529;
+        font-weight: 700;
+    }
+    .status-card {
+        padding: 20px;
+        border-radius: 15px;
+        text-align: center;
+        color: white;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        margin-bottom: 20px;
+    }
+    .chart-container {
+        background-color: white;
+        padding: 20px;
+        border-radius: 15px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    }
+    h1 {
+        color: #2c3e50;
+        text-align: center;
+        font-family: 'Helvetica', sans-serif;
+    }
+    h3 {
+        color: #34495e;
+        text-align: center;
+        margin-bottom: 30px;
+    }
+    </style>
     """, unsafe_allow_html=True)
 
-# Grafik
-st.subheader("📈 Real-time Data")
-if st.session_state.history:
-    df = pd.DataFrame(st.session_state.history)
-    st.line_chart(df, x="time", y=["Gas", "Temp", "Hum"])
-else:
-    st.info("Menunggu data dari ESP32...")
+st.title("🍃 Air Quality AI Monitor")
+st.markdown("### Intelligent Environmental Sensing System")
 
-# Auto Refresh (Penting untuk mengambil data dari Queue)
+# ================= STATUS UTAMA (HERO SECTION) =================
+lbl = st.session_state.pred_result['label']
+conf = st.session_state.pred_result['confidence']
+timestamp = st.session_state.sensor_data['timestamp']
+
+colors = {
+    "Baik": ("#28a745", "😊", "Udara Bersih"),
+    "Sedang": ("#ffc107", "😐", "Cukup Baik"),
+    "Tidak_Sehat": ("#fd7e14", "😷", "Kurangi Aktivitas Luar"),
+    "Berbahaya": ("#dc3545", "☠️", "BAHAYA! Pakai Masker")
+}
+
+color, icon, suggestion = colors.get(lbl, ("#6c757d", "❓", "Menunggu Data..."))
+
+st.markdown(f"""
+    <div class="status-card" style="background: linear-gradient(135deg, {color} 0%, {color}dd 100%);">
+        <h3 style="color:white; margin:0; opacity:0.9;">Kualitas Udara Saat Ini</h3>
+        <h1 style="color:white; font-size: 3.5rem; margin: 10px 0;">{icon} {lbl}</h1>
+        <p style="font-size: 1.2rem; margin:0;">Confidence AI: <b>{conf}%</b></p>
+        <hr style="border-color: rgba(255,255,255,0.3); margin: 15px 0;">
+        <p style="font-size: 1.1rem; font-style: italic;">"{suggestion}"</p>
+        <p style="font-size: 0.8rem; margin-top: 10px; opacity: 0.8;">Last Update: {timestamp}</p>
+    </div>
+""", unsafe_allow_html=True)
+
+# ================= METRICS ROW =================
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    st.metric("🌡️ Temperature", f"{st.session_state.sensor_data['temp']} °C", delta=None)
+
+with col2:
+    st.metric("💧 Humidity", f"{st.session_state.sensor_data['hum']} %", delta=None)
+
+with col3:
+    st.metric("💨 Gas Level", f"{st.session_state.sensor_data['gas']} ppm", delta_color="inverse")
+
+# ================= GRAFIK DETIL =================
+st.markdown("<br>", unsafe_allow_html=True)
+st.subheader("📈 Real-time Trend Analysis")
+
+if st.session_state.history:
+    with st.container():
+        st.markdown('<div class="chart-container">', unsafe_allow_html=True)
+        
+        # Konversi ke DataFrame
+        df = pd.DataFrame(st.session_state.history)
+        
+        # Custom Chart Tabs
+        tab1, tab2 = st.tabs(["Gas Levels", "Environmental Ops"])
+        
+        with tab1:
+            st.line_chart(df.set_index("time")["Gas"], color="#fd7e14", height=250)
+            
+        with tab2:
+            st.line_chart(df.set_index("time")[["Temp", "Hum"]], color=["#dc3545", "#007bff"], height=250)
+            
+        st.markdown('</div>', unsafe_allow_html=True)
+else:
+    st.info("⏳ Menunggu stream data dari perangkat IoT...")
+
+# Auto Refresh logic
 time.sleep(2)
 st.rerun()
