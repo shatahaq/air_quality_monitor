@@ -89,7 +89,8 @@ while not st.session_state.mqtt_queue.empty():
         # Update History
         new_record = {"time": timestamp, "Temp": temp, "Hum": hum, "Gas": gas}
         st.session_state.history.append(new_record)
-        if len(st.session_state.history) > 50: st.session_state.history.pop(0)
+        # Simpan hingga 1000 data terakhir agar bisa didownload
+        if len(st.session_state.history) > 1000: st.session_state.history.pop(0)
 
         # 2. LAKUKAN PREDIKSI (INFERENCE)
         if model is not None:
@@ -263,6 +264,16 @@ if st.session_state.history:
 
     with st.container():
         st.markdown('<div class="chart-wrapper">', unsafe_allow_html=True)
+        
+        # Tombol Download CSV
+        csv_data = df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📥 Download Data CSV",
+            data=csv_data,
+            file_name=f"air_quality_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            mime="text/csv",
+            help="Klik untuk menyimpan riwayat data sensor ke komputer anda"
+        )
         
         tab_gas, tab_env = st.tabs(["💨 Gas Quality Trend", "🌡️ Environment Data"])
         
