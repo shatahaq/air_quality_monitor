@@ -208,8 +208,8 @@ timestamp = st.session_state.sensor_data['timestamp']
 
 # Definisi Warna & Icon
 states = {
-    "Baik": {"color": "#10b981", "icon": "🌿", "msg": "Kualitas udara sangat baik. Nikmati harimu!"},
-    "Sedang": {"color": "#f59e0b", "icon": "🌤️", "msg": "Kualitas udara cukup. Sensitif? Hati-hati."},
+    "Baik": {"color": "#10b981", "icon": "😊", "msg": "Kualitas udara sangat baik. Nikmati harimu!"},
+    "Sedang": {"color": "#f59e0b", "icon": "😐", "msg": "Kualitas udara cukup. Sensitif? Hati-hati."},
     "Tidak_Sehat": {"color": "#f97316", "icon": "😷", "msg": "Udara kotor. Kurangi aktivitas luar ruangan."},
     "Berbahaya": {"color": "#ef4444", "icon": "☠️", "msg": "BAHAYA! Gunakan masker N95 atau tetap di dalam."}
 }
