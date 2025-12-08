@@ -42,19 +42,19 @@ if 'history' not in st.session_state:
 
 # ================= MQTT LOGIC =================
 def on_message(client, userdata, msg):
-    # DILARANG update st.session_state di sini secara langsung!
-    # Cukup masukkan pesan ke dalam antrian (Queue)
+    # userdata adalah queue
     try:
         payload = json.loads(msg.payload.decode())
         topic = msg.topic
-        # Masukkan data ke queue agar diproses oleh Main Thread nanti
-        st.session_state.mqtt_queue.put((topic, payload))
+        if userdata is not None:
+            userdata.put((topic, payload))
     except Exception as e:
         print(f"Error di thread MQTT: {e}")
 
 @st.cache_resource
-def start_mqtt():
-    client = mqtt.Client(client_id="Streamlit_AI_Cloud_Fixed", clean_session=True)
+def start_mqtt(q):
+    client = mqtt.Client(client_id="Streamlit_AI_Cloud_V2", clean_session=True)
+    client.user_data_set(q)
     client.on_message = on_message
     try:
         client.connect(BROKER, PORT, 60)
@@ -65,7 +65,7 @@ def start_mqtt():
         st.error(f"MQTT Error: {e}")
         return None
 
-mqtt_client = start_mqtt()
+mqtt_client = start_mqtt(st.session_state.mqtt_queue)
 
 # ================= PROCESS QUEUE (MAIN THREAD) =================
 # Di sini kita bongkar "kotak surat" dari MQTT dan update tampilan
