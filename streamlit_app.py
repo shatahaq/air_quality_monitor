@@ -112,118 +112,198 @@ while not st.session_state.mqtt_queue.empty():
                 mqtt_client.publish(TOPIC_PRED, json.dumps(resp))
 
 # ================= TAMPILAN UI =================
-# Custom CSS untuk styling yang lebih modern
+import altair as alt
+
+# ================= TAMPILAN UI =================
+# Custom CSS untuk styling yang lebih modern & Estetik
 st.markdown("""
     <style>
-    .main {
-        background-color: #f8f9fa;
+    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap');
+    
+    html, body, [class*="css"]  {
+        font-family: 'Poppins', sans-serif;
     }
-    .stMetric {
-        background-color: #ffffff;
-        padding: 15px;
-        border-radius: 10px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    .stApp {
+        background-color: #f0f2f6;
+    }
+    .main-header {
+        font-size: 2.5rem;
+        font-weight: 600;
+        color: #1e3a8a; /* Dark Blue */
         text-align: center;
+        margin-bottom: 5px;
     }
-    .stMetric label {
-        color: #6c757d;
-        font-weight: 500;
-    }
-    .stMetric .css-1wivap2 {
-        font-size: 24px;
-        color: #212529;
-        font-weight: 700;
-    }
-    .status-card {
-        padding: 20px;
-        border-radius: 15px;
-        text-align: center;
-        color: white;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-        margin-bottom: 20px;
-    }
-    .chart-container {
-        background-color: white;
-        padding: 20px;
-        border-radius: 15px;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-    }
-    h1 {
-        color: #2c3e50;
-        text-align: center;
-        font-family: 'Helvetica', sans-serif;
-    }
-    h3 {
-        color: #34495e;
+    .sub-header {
+        font-size: 1.1rem;
+        color: #64748b;
         text-align: center;
         margin-bottom: 30px;
+    }
+    
+    /* Card Styling */
+    .metric-card {
+        background: white;
+        padding: 20px;
+        border-radius: 16px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+        text-align: center;
+        transition: transform 0.2s;
+        border: 1px solid #e2e8f0;
+    }
+    .metric-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 8px 30px rgba(0,0,0,0.1);
+    }
+    .metric-value {
+        font-size: 2rem;
+        font-weight: 700;
+        color: #0f172a;
+        margin: 10px 0;
+    }
+    .metric-label {
+        font-size: 0.9rem;
+        color: #64748b;
+        font-weight: 500;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+    }
+    
+    /* Hero Status Card */
+    .status-card {
+        padding: 30px;
+        border-radius: 20px;
+        color: white;
+        text-align: center;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+        margin-bottom: 30px;
+        position: relative;
+        overflow: hidden;
+    }
+    .status-bg-icon {
+        position: absolute;
+        top: -20px;
+        right: -20px;
+        font-size: 10rem;
+        opacity: 0.1;
+    }
+    
+    /* Charts */
+    .chart-wrapper {
+        background: white;
+        padding: 20px;
+        border-radius: 16px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+        margin-top: 20px;
     }
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🍃 Air Quality AI Monitor")
-st.markdown("### Intelligent Environmental Sensing System")
+st.markdown('<div class="main-header">🍃 Air Quality AI Monitor</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-header">Intelligent Real-time Environmental Sensing</div>', unsafe_allow_html=True)
 
 # ================= STATUS UTAMA (HERO SECTION) =================
 lbl = st.session_state.pred_result['label']
 conf = st.session_state.pred_result['confidence']
 timestamp = st.session_state.sensor_data['timestamp']
 
-colors = {
-    "Baik": ("#28a745", "😊", "Udara Bersih"),
-    "Sedang": ("#ffc107", "😐", "Cukup Baik"),
-    "Tidak_Sehat": ("#fd7e14", "😷", "Kurangi Aktivitas Luar"),
-    "Berbahaya": ("#dc3545", "☠️", "BAHAYA! Pakai Masker")
+# Definisi Warna & Icon
+states = {
+    "Baik": {"color": "#10b981", "icon": "🌿", "msg": "Kualitas udara sangat baik. Nikmati harimu!"},
+    "Sedang": {"color": "#f59e0b", "icon": "🌤️", "msg": "Kualitas udara cukup. Sensitif? Hati-hati."},
+    "Tidak_Sehat": {"color": "#f97316", "icon": "😷", "msg": "Udara kotor. Kurangi aktivitas luar ruangan."},
+    "Berbahaya": {"color": "#ef4444", "icon": "☠️", "msg": "BAHAYA! Gunakan masker N95 atau tetap di dalam."}
 }
 
-color, icon, suggestion = colors.get(lbl, ("#6c757d", "❓", "Menunggu Data..."))
+current_state = states.get(lbl, {"color": "#64748b", "icon": "❓", "msg": "Menunggu Data..."})
+bg_color = current_state["color"]
 
 st.markdown(f"""
-    <div class="status-card" style="background: linear-gradient(135deg, {color} 0%, {color}dd 100%);">
-        <h3 style="color:white; margin:0; opacity:0.9;">Kualitas Udara Saat Ini</h3>
-        <h1 style="color:white; font-size: 3.5rem; margin: 10px 0;">{icon} {lbl}</h1>
-        <p style="font-size: 1.2rem; margin:0;">Confidence AI: <b>{conf}%</b></p>
-        <hr style="border-color: rgba(255,255,255,0.3); margin: 15px 0;">
-        <p style="font-size: 1.1rem; font-style: italic;">"{suggestion}"</p>
-        <p style="font-size: 0.8rem; margin-top: 10px; opacity: 0.8;">Last Update: {timestamp}</p>
+    <div class="status-card" style="background: linear-gradient(135deg, {bg_color}, {bg_color}cc);">
+        <div class="status-bg-icon">{current_state['icon']}</div>
+        <h3 style="margin:0; font-weight:300; opacity:0.9;">STATUS UDARA</h3>
+        <h1 style="margin: 10px 0; font-size: 4rem; font-weight:800;">{lbl.replace("_", " ")}</h1>
+        <p style="font-size: 1.2rem; opacity: 0.9;">{current_state['msg']}</p>
+        <div style="margin-top: 20px; background: rgba(255,255,255,0.2); display: inline-block; padding: 5px 15px; border-radius: 20px;">
+            Confidence: <b>{conf}%</b> &nbsp;|&nbsp; Updated: {timestamp}
+        </div>
     </div>
 """, unsafe_allow_html=True)
 
 # ================= METRICS ROW =================
-col1, col2, col3 = st.columns(3)
+c1, c2, c3 = st.columns(3)
 
-with col1:
-    st.metric("🌡️ Temperature", f"{st.session_state.sensor_data['temp']} °C", delta=None)
+def metric_card(label, value, unit, icon):
+    return f"""
+    <div class="metric-card">
+        <div class="metric-label">{icon} {label}</div>
+        <div class="metric-value">{value} <span style="font-size:1rem; color:#94a3b8;">{unit}</span></div>
+    </div>
+    """
 
-with col2:
-    st.metric("💧 Humidity", f"{st.session_state.sensor_data['hum']} %", delta=None)
+with c1:
+    st.markdown(metric_card("Temperature", st.session_state.sensor_data['temp'], "°C", "🌡️"), unsafe_allow_html=True)
+with c2:
+    st.markdown(metric_card("Humidity", st.session_state.sensor_data['hum'], "%", "💧"), unsafe_allow_html=True)
+with c3:
+    st.markdown(metric_card("Gas Level", st.session_state.sensor_data['gas'], "ppm", "💨"), unsafe_allow_html=True)
 
-with col3:
-    st.metric("💨 Gas Level", f"{st.session_state.sensor_data['gas']} ppm", delta_color="inverse")
-
-# ================= GRAFIK DETIL =================
+# ================= ALTAIR CHARTS =================
 st.markdown("<br>", unsafe_allow_html=True)
-st.subheader("📈 Real-time Trend Analysis")
+st.subheader("📊 Analytics Overview")
 
 if st.session_state.history:
+    df = pd.DataFrame(st.session_state.history)
+    # Ensure numerical types
+    df['Gas'] = pd.to_numeric(df['Gas'])
+    df['Temp'] = pd.to_numeric(df['Temp'])
+    df['Hum'] = pd.to_numeric(df['Hum'])
+    
+    # Reset index to get a sequential 'step' for charting if time is string
+    df = df.reset_index(names='step')
+
     with st.container():
-        st.markdown('<div class="chart-container">', unsafe_allow_html=True)
+        st.markdown('<div class="chart-wrapper">', unsafe_allow_html=True)
         
-        # Konversi ke DataFrame
-        df = pd.DataFrame(st.session_state.history)
+        tab_gas, tab_env = st.tabs(["💨 Gas Quality Trend", "🌡️ Environment Data"])
         
-        # Custom Chart Tabs
-        tab1, tab2 = st.tabs(["Gas Levels", "Environmental Ops"])
-        
-        with tab1:
-            st.line_chart(df.set_index("time")["Gas"], color="#fd7e14", height=250)
+        with tab_gas:
+            # Area Chart for Gas
+            chart_gas = alt.Chart(df).mark_area(
+                line={'color':'#f59e0b'},
+                color=alt.Gradient(
+                    gradient='linear',
+                    stops=[alt.GradientStop(color='#fef3c7', offset=0),
+                           alt.GradientStop(color='#f59e0b', offset=1)],
+                    x1=1, x2=1, y1=1, y2=0
+                )
+            ).encode(
+                x=alt.X('step', title='Time Steps'),
+                y=alt.Y('Gas', title='Gas (ppm)', scale=alt.Scale(zero=False)),
+                tooltip=['time', 'Gas']
+            ).properties(height=300).interactive()
             
-        with tab2:
-            st.line_chart(df.set_index("time")[["Temp", "Hum"]], color=["#dc3545", "#007bff"], height=250)
+            st.altair_chart(chart_gas, use_container_width=True)
+            
+        with tab_env:
+            # Dual Line Chart
+            base = alt.Chart(df).encode(x=alt.X('step', title='Time Steps'))
+            
+            line_temp = base.mark_line(color='#ef4444', text='Temp').encode(
+                y=alt.Y('Temp', title='Temperature (°C)', scale=alt.Scale(zero=False)),
+                tooltip=['time', 'Temp']
+            )
+            
+            line_hum = base.mark_line(color='#3b82f6').encode(
+                y=alt.Y('Hum', title='Humidity (%)', scale=alt.Scale(zero=False)),
+                tooltip=['time', 'Hum']
+            )
+            
+            st.altair_chart((line_temp + line_hum).interactive(), use_container_width=True)
             
         st.markdown('</div>', unsafe_allow_html=True)
+
 else:
-    st.info("⏳ Menunggu stream data dari perangkat IoT...")
+    st.info("⏳ Menunggu data streaming dari perangkat...")
 
 # Auto Refresh logic
 time.sleep(2)
