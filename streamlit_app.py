@@ -5,26 +5,29 @@ import pandas as pd
 import joblib
 import time
 from datetime import datetime
+import queue # Library tambahan untuk antrian thread-safe
 
 # ================= KONFIGURASI =================
 BROKER = "broker.hivemq.com"
 PORT = 1883
-TOPIC_DATA = "net4think/air_quality/data"       # Input dari ESP32
-TOPIC_PRED = "net4think/air_quality/prediction" # Output ke ESP32
-MODEL_FILE = "air_quality_rf_model.joblib"      # File model di folder yang sama
+TOPIC_DATA = "net4think/air_quality/data"
+TOPIC_PRED = "net4think/air_quality/prediction"
+MODEL_FILE = "air_quality_rf_model.joblib"
 
-# Konfigurasi Halaman
 st.set_page_config(page_title="Air Quality AI Monitor", page_icon="🍃", layout="wide")
 
-# ================= LOAD MODEL (CACHE) =================
+# ================= QUEUE SYSTEM (SOLUSI THREADING) =================
+# Kita buat "kotak surat" yang bisa diakses oleh MQTT dan Streamlit dengan aman
+if 'mqtt_queue' not in st.session_state:
+    st.session_state.mqtt_queue = queue.Queue()
+
+# ================= LOAD MODEL =================
 @st.cache_resource
 def load_model():
     try:
-        # Load model dari file joblib
         artifact = joblib.load(MODEL_FILE)
         return artifact["model"], artifact["label_encoder"], artifact["features"]
     except Exception as e:
-        st.error(f"Gagal memuat model: {e}")
         return None, None, None
 
 model, label_encoder, features = load_model()
@@ -39,72 +42,78 @@ if 'history' not in st.session_state:
 
 # ================= MQTT LOGIC =================
 def on_message(client, userdata, msg):
+    # DILARANG update st.session_state di sini secara langsung!
+    # Cukup masukkan pesan ke dalam antrian (Queue)
     try:
-        topic = msg.topic
         payload = json.loads(msg.payload.decode())
-
-        if topic == TOPIC_DATA:
-            # 1. Ambil Data
-            temp = float(payload.get("temperature", 0))
-            hum = float(payload.get("humidity", 0))
-            gas = float(payload.get("gas_ppm", 0))
-            timestamp = payload.get("timestamp", datetime.now().strftime("%H:%M:%S"))
-
-            # Update Session State (untuk UI)
-            st.session_state.sensor_data = {"temp": temp, "hum": hum, "gas": gas, "timestamp": timestamp}
-            
-            # Update History (untuk Grafik)
-            new_record = {"time": timestamp, "Temp": temp, "Hum": hum, "Gas": gas}
-            st.session_state.history.append(new_record)
-            if len(st.session_state.history) > 50: st.session_state.history.pop(0)
-
-            # 2. LAKUKAN PREDIKSI (INFERENCE) DI SINI
-            if model is not None:
-                # Siapkan data frame (harus sesuai urutan fitur saat training)
-                input_df = pd.DataFrame([[temp, hum, gas]], columns=features)
-                
-                # Prediksi
-                pred_idx = model.predict(input_df)[0]
-                pred_label = label_encoder.inverse_transform([pred_idx])[0]
-                proba = model.predict_proba(input_df)[0]
-                confidence = round(proba[pred_idx] * 100, 1)
-
-                # Update State Prediksi
-                st.session_state.pred_result = {"label": pred_label, "confidence": confidence}
-
-                # 3. KIRIM BALIK KE ESP32 (PUBLISH)
-                resp = {
-                    "label": pred_label,
-                    "confidence": confidence,
-                    "device_id": "Streamlit-Cloud"
-                }
-                client.publish(TOPIC_PRED, json.dumps(resp))
-                
+        topic = msg.topic
+        # Masukkan data ke queue agar diproses oleh Main Thread nanti
+        st.session_state.mqtt_queue.put((topic, payload))
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Error di thread MQTT: {e}")
 
 @st.cache_resource
 def start_mqtt():
-    client = mqtt.Client(client_id="Streamlit_AI_Cloud", clean_session=True)
+    client = mqtt.Client(client_id="Streamlit_AI_Cloud_Fixed", clean_session=True)
     client.on_message = on_message
     try:
         client.connect(BROKER, PORT, 60)
         client.subscribe(TOPIC_DATA)
-        client.loop_start() # Jalan di background
+        client.loop_start()
         return client
     except Exception as e:
         st.error(f"MQTT Error: {e}")
         return None
 
-# Start MQTT
 mqtt_client = start_mqtt()
 
-# ================= TAMPILAN DASHBOARD (UI) =================
+# ================= PROCESS QUEUE (MAIN THREAD) =================
+# Di sini kita bongkar "kotak surat" dari MQTT dan update tampilan
+# Loop ini akan mengambil SEMUA pesan yang menumpuk di antrian
+while not st.session_state.mqtt_queue.empty():
+    topic, payload = st.session_state.mqtt_queue.get()
+    
+    if topic == TOPIC_DATA:
+        # 1. Ambil Data
+        temp = float(payload.get("temperature", 0))
+        hum = float(payload.get("humidity", 0))
+        gas = float(payload.get("gas_ppm", 0))
+        timestamp = payload.get("timestamp", datetime.now().strftime("%H:%M:%S"))
+
+        # Update Session State
+        st.session_state.sensor_data = {"temp": temp, "hum": hum, "gas": gas, "timestamp": timestamp}
+        
+        # Update History
+        new_record = {"time": timestamp, "Temp": temp, "Hum": hum, "Gas": gas}
+        st.session_state.history.append(new_record)
+        if len(st.session_state.history) > 50: st.session_state.history.pop(0)
+
+        # 2. LAKUKAN PREDIKSI (INFERENCE)
+        if model is not None:
+            input_df = pd.DataFrame([[temp, hum, gas]], columns=features)
+            
+            pred_idx = model.predict(input_df)[0]
+            pred_label = label_encoder.inverse_transform([pred_idx])[0]
+            proba = model.predict_proba(input_df)[0]
+            confidence = round(proba[pred_idx] * 100, 1)
+
+            st.session_state.pred_result = {"label": pred_label, "confidence": confidence}
+
+            # 3. KIRIM BALIK KE ESP32
+            if mqtt_client is not None:
+                resp = {
+                    "label": pred_label,
+                    "confidence": confidence,
+                    "device_id": "Streamlit-Cloud"
+                }
+                mqtt_client.publish(TOPIC_PRED, json.dumps(resp))
+
+# ================= TAMPILAN UI =================
 st.title("🍃 AI Air Quality Monitoring")
 st.markdown("### Random Forest Inference on Streamlit Cloud")
 st.markdown("---")
 
-# Bagian Atas: Metrik & Banner Status
+# Kolom Metrik & Status
 col_metrics, col_status = st.columns([2, 1])
 
 with col_metrics:
@@ -118,7 +127,6 @@ with col_status:
     lbl = st.session_state.pred_result['label']
     conf = st.session_state.pred_result['confidence']
     
-    # Warna Banner
     colors = {
         "Baik": "#28a745",          # Hijau
         "Sedang": "#ffc107",        # Kuning
@@ -134,7 +142,7 @@ with col_status:
         </div>
     """, unsafe_allow_html=True)
 
-# Bagian Bawah: Grafik
+# Grafik
 st.subheader("📈 Real-time Data")
 if st.session_state.history:
     df = pd.DataFrame(st.session_state.history)
@@ -142,6 +150,6 @@ if st.session_state.history:
 else:
     st.info("Menunggu data dari ESP32...")
 
-# Auto Refresh agar UI terupdate
+# Auto Refresh (Penting untuk mengambil data dari Queue)
 time.sleep(2)
 st.rerun()
