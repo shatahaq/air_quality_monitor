@@ -219,12 +219,12 @@ bg_color = current_state["color"]
 
 st.markdown(f"""
     <div class="status-card" style="background: linear-gradient(135deg, {bg_color}, {bg_color}cc);">
-        <div class="status-bg-icon">{current_state['icon']}</div>
-        <h3 style="margin:0; font-weight:300; opacity:0.9;">STATUS UDARA</h3>
-        <h1 style="margin: 10px 0; font-size: 4rem; font-weight:800;">{lbl.replace("_", " ")}</h1>
-        <p style="font-size: 1.2rem; opacity: 0.9;">{current_state['msg']}</p>
-        <div style="margin-top: 20px; background: rgba(255,255,255,0.2); display: inline-block; padding: 5px 15px; border-radius: 20px;">
-            Confidence: <b>{conf}%</b> &nbsp;|&nbsp; Updated: {timestamp}
+        <div style="font-size: 5rem; margin-bottom: 0px; text-shadow: 0 4px 10px rgba(0,0,0,0.2);">{current_state['icon']}</div>
+        <h3 style="margin:0; font-weight:400; opacity:0.9; font-size: 1.2rem; text-transform: uppercase; letter-spacing: 2px;">Status Udara</h3>
+        <h1 style="margin: 5px 0 15px 0; font-size: 3.5rem; font-weight:800; letter-spacing: 1px;">{lbl.replace("_", " ")}</h1>
+        <p style="font-size: 1.1rem; opacity: 0.95; font-style: italic; background: rgba(0,0,0,0.1); display: inline-block; padding: 5px 15px; border-radius: 15px;">"{current_state['msg']}"</p>
+        <div style="margin-top: 15px; font-size: 0.9rem; opacity: 0.8;">
+            Confidence: <b>{conf}%</b> &nbsp;•&nbsp; Last Update: {timestamp}
         </div>
     </div>
 """, unsafe_allow_html=True)
