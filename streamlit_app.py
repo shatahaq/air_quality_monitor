@@ -46,12 +46,26 @@ def load_model():
     try:
         artifact = joblib.load(MODEL_FILE)
         return artifact["model"], artifact["label_encoder"], artifact["features"]
-    except Exception:
+    except Exception as e:
+        print(f"Model Load Error: {e}")
         return None, None, None
 
 model, label_encoder, features = load_model()
 
+if model is None:
+    st.error("⚠️ Gagal memuat model Machine Learning. Pastikan file model kompatibel.")
+
 # --- MQTT Setup ---
+import uuid
+
+def on_connect(client, userdata, flags, rc, properties=None):
+    """Callback for when the client receives a CONNACK response from the server."""
+    if rc == 0:
+        print("Connected to MQTT Broker!")
+        client.subscribe(TOPIC_DATA)
+    else:
+        print(f"Failed to connect, return code {rc}")
+
 def on_message(client, userdata, msg):
     """Callback for MQTT message reception."""
     try:
@@ -65,11 +79,13 @@ def on_message(client, userdata, msg):
 @st.cache_resource
 def start_mqtt():
     """Initialize and start the MQTT client in a background thread."""
-    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="Streamlit_AI_Cloud_V2", clean_session=True)
+    # Use a unique client ID to avoid conflicts
+    unique_id = f"Streamlit_AI_{uuid.uuid4().hex[:8]}"
+    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=unique_id, clean_session=True)
+    client.on_connect = on_connect
     client.on_message = on_message
     try:
         client.connect(BROKER, PORT, 60)
-        client.subscribe(TOPIC_DATA)
         client.loop_start()
         return client
     except Exception as e:
