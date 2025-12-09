@@ -65,7 +65,7 @@ def on_message(client, userdata, msg):
 @st.cache_resource
 def start_mqtt():
     """Initialize and start the MQTT client in a background thread."""
-    client = mqtt.Client(client_id="Streamlit_AI_Cloud_V2", clean_session=True)
+    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="Streamlit_AI_Cloud_V2", clean_session=True)
     client.on_message = on_message
     try:
         client.connect(BROKER, PORT, 60)
