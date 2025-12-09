@@ -1,7 +1,7 @@
 import json
 import time
 import queue
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import streamlit as st
 import pandas as pd
@@ -97,6 +97,7 @@ mqtt_client = start_mqtt()
 if mqtt_client:
     mqtt_client.user_data_set(st.session_state.mqtt_queue)
 
+
 # --- Data Processing (Main Thread) ---
 while not st.session_state.mqtt_queue.empty():
     topic, payload = st.session_state.mqtt_queue.get()
@@ -106,7 +107,10 @@ while not st.session_state.mqtt_queue.empty():
         temp = float(payload.get("temperature", 0))
         hum = float(payload.get("humidity", 0))
         gas = float(payload.get("gas_ppm", 0))
-        timestamp = payload.get("timestamp", datetime.now().strftime("%H:%M:%S"))
+        
+        # Get WIB Time (UTC+7)
+        wib_time = datetime.now(timezone.utc) + timedelta(hours=7)
+        timestamp = payload.get("timestamp", wib_time.strftime("%H:%M:%S"))
 
         # Update Current State
         st.session_state.sensor_data = {
