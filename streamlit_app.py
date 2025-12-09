@@ -238,7 +238,6 @@ st.markdown(f"""
         <h3 style="margin:0; font-weight:400; opacity:0.9; font-size: 1.2rem; text-transform: uppercase; letter-spacing: 2px;">Status Udara</h3>
         <h1 style="margin: 5px 0 15px 0; font-size: 3.5rem; font-weight:800; letter-spacing: 1px;">{lbl.replace("_", " ")}</h1>
         <p style="font-size: 1.1rem; opacity: 0.95; font-style: italic; background: rgba(0,0,0,0.1); display: inline-block; padding: 5px 15px; border-radius: 15px; margin-bottom: 25px;">"{current_state['msg']}"</p>
-        
         <div style="background: rgba(255, 255, 255, 0.25); border-radius: 16px; padding: 20px; text-align: left; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border: 1px solid rgba(255,255,255,0.2);">
             <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 8px;">
                 <span style="font-size: 0.95rem; font-weight: 500; opacity: 0.9; letter-spacing: 0.5px;">🤖 AI CONFIDENCE</span>
