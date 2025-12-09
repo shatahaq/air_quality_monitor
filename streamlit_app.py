@@ -86,13 +86,9 @@ while not st.session_state.mqtt_queue.empty():
         # Update Session State
         st.session_state.sensor_data = {"temp": temp, "hum": hum, "gas": gas, "timestamp": timestamp}
         
-        # Update History
-        new_record = {"time": timestamp, "Temp": temp, "Hum": hum, "Gas": gas}
-        st.session_state.history.append(new_record)
-        # Simpan hingga 1000 data terakhir agar bisa didownload
-        if len(st.session_state.history) > 1000: st.session_state.history.pop(0)
-
         # 2. LAKUKAN PREDIKSI (INFERENCE)
+        pred_label = "N/A"
+        confidence = 0
         if model is not None:
             input_df = pd.DataFrame([[temp, hum, gas]], columns=features)
             
@@ -111,6 +107,18 @@ while not st.session_state.mqtt_queue.empty():
                     "device_id": "Streamlit-Cloud"
                 }
                 mqtt_client.publish(TOPIC_PRED, json.dumps(resp))
+
+        # Update History (Setelah prediksi, agar status masuk ke log)
+        new_record = {
+            "time": timestamp, 
+            "Temp": temp, 
+            "Hum": hum, 
+            "Gas": gas,
+            "Status": pred_label  # Menambahkan status ke history
+        }
+        st.session_state.history.append(new_record)
+        # Simpan hingga 1000 data terakhir agar bisa didownload
+        if len(st.session_state.history) > 1000: st.session_state.history.pop(0)
 
 # ================= TAMPILAN UI =================
 import altair as alt
@@ -196,6 +204,18 @@ st.markdown("""
         box-shadow: 0 4px 20px rgba(0,0,0,0.05);
         margin-top: 20px;
     }
+    
+    /* Table Styling */
+    div[data-testid="stExpander"] {
+        background: white;
+        border-radius: 16px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+        border: 1px solid #e2e8f0;
+    }
+    div[data-testid="stExpander"] > div[role="button"] {
+        color: #1e3a8a;
+        font-weight: 600;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -223,9 +243,20 @@ st.markdown(f"""
         <div style="font-size: 5rem; margin-bottom: 0px; text-shadow: 0 4px 10px rgba(0,0,0,0.2);">{current_state['icon']}</div>
         <h3 style="margin:0; font-weight:400; opacity:0.9; font-size: 1.2rem; text-transform: uppercase; letter-spacing: 2px;">Status Udara</h3>
         <h1 style="margin: 5px 0 15px 0; font-size: 3.5rem; font-weight:800; letter-spacing: 1px;">{lbl.replace("_", " ")}</h1>
-        <p style="font-size: 1.1rem; opacity: 0.95; font-style: italic; background: rgba(0,0,0,0.1); display: inline-block; padding: 5px 15px; border-radius: 15px;">"{current_state['msg']}"</p>
-        <div style="margin-top: 15px; font-size: 0.9rem; opacity: 0.8;">
-            Confidence: <b>{conf}%</b> &nbsp;•&nbsp; Last Update: {timestamp}
+        <p style="font-size: 1.1rem; opacity: 0.95; font-style: italic; background: rgba(0,0,0,0.1); display: inline-block; padding: 5px 15px; border-radius: 15px; margin-bottom: 25px;">"{current_state['msg']}"</p>
+        
+        <div style="background: rgba(255, 255, 255, 0.25); border-radius: 16px; padding: 20px; text-align: left; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border: 1px solid rgba(255,255,255,0.2);">
+            <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 8px;">
+                <span style="font-size: 0.95rem; font-weight: 500; opacity: 0.9; letter-spacing: 0.5px;">🤖 AI CONFIDENCE</span>
+                <span style="font-size: 1.8rem; font-weight: 700; line-height: 1;">{conf}<span style="font-size: 1rem;">%</span></span>
+            </div>
+            <div style="width: 100%; height: 10px; background: rgba(255,255,255,0.3); border-radius: 5px; overflow: hidden; margin-bottom: 12px;">
+                <div style="width: {conf}%; height: 100%; background: #ffffff; border-radius: 5px; box-shadow: 0 0 10px rgba(255,255,255,0.5); transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);"></div>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-size: 0.8rem; opacity: 0.85;">
+                <span>Updating live...</span>
+                <span>⏱️ {timestamp}</span>
+            </div>
         </div>
     </div>
 """, unsafe_allow_html=True)
@@ -248,9 +279,8 @@ with c2:
 with c3:
     st.markdown(metric_card("Gas Level", st.session_state.sensor_data['gas'], "ppm", "💨"), unsafe_allow_html=True)
 
-# ================= ALTAIR CHARTS =================
+# ================= ALTAIR CHARTS & TABLE =================
 st.markdown("<br>", unsafe_allow_html=True)
-st.subheader("📊 Analytics Overview")
 
 if st.session_state.history:
     df = pd.DataFrame(st.session_state.history)
@@ -262,18 +292,35 @@ if st.session_state.history:
     # Reset index to get a sequential 'step' for charting if time is string
     df = df.reset_index(names='step')
 
-    with st.container():
-        st.markdown('<div class="chart-wrapper">', unsafe_allow_html=True)
+    # View Raw Data Table Checkbox/Expander
+    with st.expander("📄 View Raw Data", expanded=True):
+        st.dataframe(
+            df[['time', 'Temp', 'Hum', 'Gas', 'Status']], 
+            use_container_width=True,
+            column_config={
+                "time": "Timestamp",
+                "Temp": st.column_config.NumberColumn("Temp (°C)", format="%.1f"),
+                "Hum": st.column_config.NumberColumn("Humidity (%)", format="%.1f"),
+                "Gas": st.column_config.NumberColumn("Gas (ppm)", format="%.1f"),
+                "Status": "AI Status"
+            },
+            hide_index=True
+        )
         
         # Tombol Download CSV
         csv_data = df.to_csv(index=False).encode('utf-8')
         st.download_button(
-            label="📥 Download Data CSV",
+            label="📥 Download Full Log (CSV)",
             data=csv_data,
             file_name=f"air_quality_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
             mime="text/csv",
-            help="Klik untuk menyimpan riwayat data sensor ke komputer anda"
+            use_container_width=True,
+            type="primary"
         )
+
+    st.subheader("📊 Analytics Overview")
+    with st.container():
+        st.markdown('<div class="chart-wrapper">', unsafe_allow_html=True)
         
         tab_gas, tab_env = st.tabs(["💨 Gas Quality Trend", "🌡️ Environment Data"])
         
