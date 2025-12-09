@@ -334,33 +334,55 @@ if st.session_state.history:
         with tab_gas:
             chart_gas = alt.Chart(df).mark_area(
                 line={'color':'#f59e0b'},
+                interpolate='monotone',
                 color=alt.Gradient(
                     gradient='linear',
-                    stops=[alt.GradientStop(color='#fef3c7', offset=0),
-                           alt.GradientStop(color='#f59e0b', offset=1)],
+                    stops=[alt.GradientStop(color='rgba(245, 158, 11, 0.1)', offset=0),
+                           alt.GradientStop(color='rgba(245, 158, 11, 0.6)', offset=1)],
                     x1=1, x2=1, y1=1, y2=0
                 )
             ).encode(
-                x=alt.X('step', title='Time Steps'),
-                y=alt.Y('Gas', title='Gas (ppm)', scale=alt.Scale(zero=False)),
-                tooltip=['time', 'Gas']
-            ).properties(height=300).interactive()
-            st.altair_chart(chart_gas, use_container_width=True)
+                x=alt.X('step', axis=None), # Hide X axis labels for cleaner look or keep them
+                y=alt.Y('Gas', title='Gas Concentration (ppm)', scale=alt.Scale(zero=False, padding=1)),
+                tooltip=[
+                    alt.Tooltip('time', title='Time'),
+                    alt.Tooltip('Gas', title='Gas ppm', format='.1f'),
+                    alt.Tooltip('Status', title='Status')
+                ]
+            ).properties(height=350)
+            
+            # Add points for better hover interaction
+            points = chart_gas.mark_circle(size=60, color='#f59e0b').encode(
+                opacity=alt.condition(alt.value(0), alt.value(1), alt.value(0)) # Hidden unless hovered? No, let's keep them hidden or small
+            )
+
+            st.altair_chart(chart_gas.interactive(), use_container_width=True)
             
         with tab_env:
-            base = alt.Chart(df).encode(x=alt.X('step', title='Time Steps'))
-            
-            line_temp = base.mark_line(color='#ef4444', text='Temp').encode(
-                y=alt.Y('Temp', title='Temperature (°C)', scale=alt.Scale(zero=False)),
-                tooltip=['time', 'Temp']
+            # Base chart
+            base = alt.Chart(df).encode(
+                x=alt.X('step', axis=alt.Axis(title='History Steps'), title=None),
+                tooltip=[alt.Tooltip('time', title='Time')]
             )
-            
-            line_hum = base.mark_line(color='#3b82f6').encode(
-                y=alt.Y('Hum', title='Humidity (%)', scale=alt.Scale(zero=False)),
-                tooltip=['time', 'Hum']
+
+            # Temperature Line (Left Axis, Red)
+            line_temp = base.mark_line(color='#ef4444', interpolate='monotone', strokeWidth=3).encode(
+                y=alt.Y('Temp', title='Temperature (°C)', axis=alt.Axis(titleColor='#ef4444'), scale=alt.Scale(zero=False, padding=1)),
+                tooltip=['time', alt.Tooltip('Temp', title='Temperature', format='.1f')]
             )
+
+            # Humidity Line (Right Axis, Blue)
+            line_hum = base.mark_line(color='#3b82f6', interpolate='monotone', strokeWidth=3).encode(
+                y=alt.Y('Hum', title='Humidity (%)', axis=alt.Axis(titleColor='#3b82f6'), scale=alt.Scale(zero=False, padding=1)),
+                tooltip=['time', alt.Tooltip('Hum', title='Humidity', format='.1f')]
+            )
+
+            # Combine with independent y scales
+            chart_env = alt.layer(line_temp, line_hum).resolve_scale(
+                y='independent'
+            ).properties(height=350).interactive()
             
-            st.altair_chart((line_temp + line_hum).interactive(), use_container_width=True)
+            st.altair_chart(chart_env, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 else:
     st.info("⏳ Waiting for data stream...")
