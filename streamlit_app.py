@@ -1,60 +1,71 @@
-import streamlit as st
-import paho.mqtt.client as mqtt
 import json
+import time
+import queue
+from datetime import datetime
+
+import streamlit as st
 import pandas as pd
 import joblib
-import time
-from datetime import datetime
-import queue # Library tambahan untuk antrian thread-safe
+import altair as alt
+import paho.mqtt.client as mqtt
 
-# ================= KONFIGURASI =================
+# --- Configuration ---
 BROKER = "broker.hivemq.com"
 PORT = 1883
 TOPIC_DATA = "net4think/air_quality/data"
 TOPIC_PRED = "net4think/air_quality/prediction"
 MODEL_FILE = "air_quality_rf_model.joblib"
 
-st.set_page_config(page_title="Air Quality AI Monitor", page_icon="🍃", layout="wide")
+st.set_page_config(
+    page_title="Air Quality AI Monitor",
+    page_icon="🍃",
+    layout="wide"
+)
 
-# ================= QUEUE SYSTEM (SOLUSI THREADING) =================
-# Kita buat "kotak surat" yang bisa diakses oleh MQTT dan Streamlit dengan aman
+# --- State Management ---
 if 'mqtt_queue' not in st.session_state:
     st.session_state.mqtt_queue = queue.Queue()
 
-# ================= LOAD MODEL =================
+if 'sensor_data' not in st.session_state:
+    st.session_state.sensor_data = {
+        "temp": 0, "hum": 0, "gas": 0, "timestamp": "-"
+    }
+
+if 'pred_result' not in st.session_state:
+    st.session_state.pred_result = {
+        "label": "Menunggu...", "confidence": 0
+    }
+
+if 'history' not in st.session_state:
+    st.session_state.history = []
+
+# --- Model Loading ---
 @st.cache_resource
 def load_model():
+    """Load the machine learning model, label encoder, and feature names."""
     try:
         artifact = joblib.load(MODEL_FILE)
         return artifact["model"], artifact["label_encoder"], artifact["features"]
-    except Exception as e:
+    except Exception:
         return None, None, None
 
 model, label_encoder, features = load_model()
 
-# ================= SESSION STATE =================
-if 'sensor_data' not in st.session_state:
-    st.session_state.sensor_data = {"temp": 0, "hum": 0, "gas": 0, "timestamp": "-"}
-if 'pred_result' not in st.session_state:
-    st.session_state.pred_result = {"label": "Menunggu...", "confidence": 0}
-if 'history' not in st.session_state:
-    st.session_state.history = []
-
-# ================= MQTT LOGIC =================
+# --- MQTT Setup ---
 def on_message(client, userdata, msg):
-    # userdata adalah queue
+    """Callback for MQTT message reception."""
     try:
         payload = json.loads(msg.payload.decode())
         topic = msg.topic
         if userdata is not None:
             userdata.put((topic, payload))
     except Exception as e:
-        print(f"Error di thread MQTT: {e}")
+        print(f"MQTT Thread Error: {e}")
 
 @st.cache_resource
 def start_mqtt():
+    """Initialize and start the MQTT client in a background thread."""
     client = mqtt.Client(client_id="Streamlit_AI_Cloud_V2", clean_session=True)
-    # user_data akan diset di main thread
     client.on_message = on_message
     try:
         client.connect(BROKER, PORT, 60)
@@ -62,7 +73,7 @@ def start_mqtt():
         client.loop_start()
         return client
     except Exception as e:
-        st.error(f"MQTT Error: {e}")
+        st.error(f"MQTT Connection Error: {e}")
         return None
 
 mqtt_client = start_mqtt()
@@ -70,36 +81,37 @@ mqtt_client = start_mqtt()
 if mqtt_client:
     mqtt_client.user_data_set(st.session_state.mqtt_queue)
 
-# ================= PROCESS QUEUE (MAIN THREAD) =================
-# Di sini kita bongkar "kotak surat" dari MQTT dan update tampilan
-# Loop ini akan mengambil SEMUA pesan yang menumpuk di antrian
+# --- Data Processing (Main Thread) ---
 while not st.session_state.mqtt_queue.empty():
     topic, payload = st.session_state.mqtt_queue.get()
     
     if topic == TOPIC_DATA:
-        # 1. Ambil Data
+        # Parse Data
         temp = float(payload.get("temperature", 0))
         hum = float(payload.get("humidity", 0))
         gas = float(payload.get("gas_ppm", 0))
         timestamp = payload.get("timestamp", datetime.now().strftime("%H:%M:%S"))
 
-        # Update Session State
-        st.session_state.sensor_data = {"temp": temp, "hum": hum, "gas": gas, "timestamp": timestamp}
+        # Update Current State
+        st.session_state.sensor_data = {
+            "temp": temp, "hum": hum, "gas": gas, "timestamp": timestamp
+        }
         
-        # 2. LAKUKAN PREDIKSI (INFERENCE)
+        # Inference
         pred_label = "N/A"
         confidence = 0
         if model is not None:
             input_df = pd.DataFrame([[temp, hum, gas]], columns=features)
-            
             pred_idx = model.predict(input_df)[0]
             pred_label = label_encoder.inverse_transform([pred_idx])[0]
             proba = model.predict_proba(input_df)[0]
             confidence = round(proba[pred_idx] * 100, 1)
 
-            st.session_state.pred_result = {"label": pred_label, "confidence": confidence}
+            st.session_state.pred_result = {
+                "label": pred_label, "confidence": confidence
+            }
 
-            # 3. KIRIM BALIK KE ESP32
+            # Publish Result
             if mqtt_client is not None:
                 resp = {
                     "label": pred_label,
@@ -107,24 +119,22 @@ while not st.session_state.mqtt_queue.empty():
                     "device_id": "Streamlit-Cloud"
                 }
                 mqtt_client.publish(TOPIC_PRED, json.dumps(resp))
-
-        # Update History (Setelah prediksi, agar status masuk ke log)
+        
+        # Update History
         new_record = {
             "time": timestamp, 
             "Temp": temp, 
             "Hum": hum, 
             "Gas": gas,
-            "Status": pred_label  # Menambahkan status ke history
+            "Status": pred_label 
         }
         st.session_state.history.append(new_record)
-        # Simpan hingga 1000 data terakhir agar bisa didownload
-        if len(st.session_state.history) > 1000: st.session_state.history.pop(0)
+        
+        # Maintain history buffer size
+        if len(st.session_state.history) > 1000: 
+            st.session_state.history.pop(0)
 
-# ================= TAMPILAN UI =================
-import altair as alt
-
-# ================= TAMPILAN UI =================
-# Custom CSS untuk styling yang lebih modern & Estetik
+# --- UI Application ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap');
@@ -138,7 +148,7 @@ st.markdown("""
     .main-header {
         font-size: 2.5rem;
         font-weight: 600;
-        color: #1e3a8a; /* Dark Blue */
+        color: #1e3a8a;
         text-align: center;
         margin-bottom: 5px;
     }
@@ -148,8 +158,6 @@ st.markdown("""
         text-align: center;
         margin-bottom: 30px;
     }
-    
-    /* Card Styling */
     .metric-card {
         background: white;
         padding: 20px;
@@ -176,8 +184,6 @@ st.markdown("""
         text-transform: uppercase;
         letter-spacing: 1px;
     }
-    
-    /* Hero Status Card */
     .status-card {
         padding: 30px;
         border-radius: 20px;
@@ -188,15 +194,6 @@ st.markdown("""
         position: relative;
         overflow: hidden;
     }
-    .status-bg-icon {
-        position: absolute;
-        top: -20px;
-        right: -20px;
-        font-size: 10rem;
-        opacity: 0.1;
-    }
-    
-    /* Charts */
     .chart-wrapper {
         background: white;
         padding: 20px;
@@ -204,8 +201,6 @@ st.markdown("""
         box-shadow: 0 4px 20px rgba(0,0,0,0.05);
         margin-top: 20px;
     }
-    
-    /* Table Styling */
     div[data-testid="stExpander"] {
         background: white;
         border-radius: 16px;
@@ -217,25 +212,24 @@ st.markdown("""
         font-weight: 600;
     }
     </style>
-    """, unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
 st.markdown('<div class="main-header">🍃 Air Quality AI Monitor</div>', unsafe_allow_html=True)
 st.markdown('<div class="sub-header">Intelligent Real-time Environmental Sensing</div>', unsafe_allow_html=True)
 
-# ================= STATUS UTAMA (HERO SECTION) =================
+# --- Hero Section (Status) ---
 lbl = st.session_state.pred_result['label']
 conf = st.session_state.pred_result['confidence']
 timestamp = st.session_state.sensor_data['timestamp']
 
-# Definisi Warna & Icon
-states = {
+STATUS_CONFIG = {
     "Baik": {"color": "#10b981", "icon": "😊", "msg": "Kualitas udara sangat baik. Nikmati harimu!"},
     "Sedang": {"color": "#f59e0b", "icon": "😐", "msg": "Kualitas udara cukup. Sensitif? Hati-hati."},
     "Tidak_Sehat": {"color": "#f97316", "icon": "😷", "msg": "Udara kotor. Kurangi aktivitas luar ruangan."},
     "Berbahaya": {"color": "#ef4444", "icon": "☠️", "msg": "BAHAYA! Gunakan masker N95 atau tetap di dalam."}
 }
 
-current_state = states.get(lbl, {"color": "#64748b", "icon": "❓", "msg": "Menunggu Data..."})
+current_state = STATUS_CONFIG.get(lbl, {"color": "#64748b", "icon": "❓", "msg": "Menunggu Data..."})
 bg_color = current_state["color"]
 
 st.markdown(f"""
@@ -261,7 +255,7 @@ st.markdown(f"""
     </div>
 """, unsafe_allow_html=True)
 
-# ================= METRICS ROW =================
+# --- Metrics Section ---
 c1, c2, c3 = st.columns(3)
 
 def metric_card(label, value, unit, icon):
@@ -279,20 +273,16 @@ with c2:
 with c3:
     st.markdown(metric_card("Gas Level", st.session_state.sensor_data['gas'], "ppm", "💨"), unsafe_allow_html=True)
 
-# ================= ALTAIR CHARTS & TABLE =================
+# --- Analytics Section ---
 st.markdown("<br>", unsafe_allow_html=True)
 
 if st.session_state.history:
     df = pd.DataFrame(st.session_state.history)
-    # Ensure numerical types
-    df['Gas'] = pd.to_numeric(df['Gas'])
-    df['Temp'] = pd.to_numeric(df['Temp'])
-    df['Hum'] = pd.to_numeric(df['Hum'])
+    df[['Gas', 'Temp', 'Hum']] = df[['Gas', 'Temp', 'Hum']].apply(pd.to_numeric)
     
-    # Reset index to get a sequential 'step' for charting if time is string
+    # Generate sequential step for charts
     df = df.reset_index(names='step')
 
-    # View Raw Data Table Checkbox/Expander
     with st.expander("📄 View Raw Data", expanded=True):
         st.dataframe(
             df[['time', 'Temp', 'Hum', 'Gas', 'Status']], 
@@ -307,11 +297,9 @@ if st.session_state.history:
             hide_index=True
         )
         
-        # Tombol Download CSV
-        csv_data = df.to_csv(index=False).encode('utf-8')
         st.download_button(
             label="📥 Download Full Log (CSV)",
-            data=csv_data,
+            data=df.to_csv(index=False).encode('utf-8'),
             file_name=f"air_quality_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
             mime="text/csv",
             use_container_width=True,
@@ -325,7 +313,6 @@ if st.session_state.history:
         tab_gas, tab_env = st.tabs(["💨 Gas Quality Trend", "🌡️ Environment Data"])
         
         with tab_gas:
-            # Area Chart for Gas
             chart_gas = alt.Chart(df).mark_area(
                 line={'color':'#f59e0b'},
                 color=alt.Gradient(
@@ -339,11 +326,9 @@ if st.session_state.history:
                 y=alt.Y('Gas', title='Gas (ppm)', scale=alt.Scale(zero=False)),
                 tooltip=['time', 'Gas']
             ).properties(height=300).interactive()
-            
             st.altair_chart(chart_gas, use_container_width=True)
             
         with tab_env:
-            # Dual Line Chart
             base = alt.Chart(df).encode(x=alt.X('step', title='Time Steps'))
             
             line_temp = base.mark_line(color='#ef4444', text='Temp').encode(
@@ -357,12 +342,10 @@ if st.session_state.history:
             )
             
             st.altair_chart((line_temp + line_hum).interactive(), use_container_width=True)
-            
         st.markdown('</div>', unsafe_allow_html=True)
-
 else:
-    st.info("⏳ Menunggu data streaming dari perangkat...")
+    st.info("⏳ Waiting for data stream...")
 
-# Auto Refresh logic
+# Auto-refresh loop
 time.sleep(2)
 st.rerun()
